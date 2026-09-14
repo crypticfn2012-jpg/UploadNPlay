@@ -2,43 +2,59 @@ import { supabase } from './lib/supabase';
 
 const launchSelector = '.player iframe';
 
-type LaunchConfig = {
-  gameId: string;
-  token: string;
-  publicKey: string | null;
-};
-
 function currentGameId(): string | null {
   const match = window.location.hash.match(/^#\/game\/([^/?#]+)/);
   return match ? decodeURIComponent(match[1]) : null;
 }
 
-function normalizeGameFrame(frame: HTMLIFrameElement) {
-  // Uploaded games are served from a separate Supabase origin. Do not sandbox
-  // them here: Chromium warns about allow-scripts + allow-same-origin, and the
-  // games need normal HTML5 browser APIs such as pointer lock and storage.
-  frame.removeAttribute('sandbox');
-  frame.setAttribute('allow', 'fullscreen; autoplay');
-  frame.referrerPolicy = 'no-referrer';
+function fitGameDocument(frame: HTMLIFrameElement) {
+  try {
+    const doc = frame.contentDocument;
+    if (!doc) return;
+    const existing = doc.getElementById('uploadnplay-fit-style');
+    if (existing) return;
+
+    const style = doc.createElement('style');
+    style.id = 'uploadnplay-fit-style';
+    style.textContent = `
+      html, body {
+        width: 100% !important;
+        height: 100% !important;
+        min-width: 0 !important;
+        min-height: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        overflow: hidden !important;
+      }
+      body {
+        max-width: 100% !important;
+        box-sizing: border-box !important;
+      }
+      canvas, video, img, iframe {
+        max-width: 100% !important;
+        max-height: 100% !important;
+      }
+    `;
+    (doc.head || doc.documentElement).appendChild(style);
+  } catch {
+    // Ignore pages that deliberately isolate their document.
+  }
 }
 
-function sendLaunchConfig(frame: HTMLIFrameElement, config: LaunchConfig) {
-  frame.contentWindow?.postMessage(
-    {
-      source: 'uploadnplay',
-      type: 'uploadnplay-launch',
-      gameId: config.gameId,
-      token: config.token,
-      publicKey: config.publicKey,
-    },
-    '*'
-  );
+function normalizeGameFrame(frame: HTMLIFrameElement) {
+  frame.removeAttribute('sandbox');
+  frame.setAttribute('allow', 'fullscreen; autoplay');
+  frame.setAttribute('scrolling', 'no');
+  frame.referrerPolicy = 'no-referrer';
+  frame.style.overflow = 'hidden';
 }
 
 async function prepareFrame(frame: HTMLIFrameElement) {
   normalizeGameFrame(frame);
-  if (frame.dataset.uploadnplayPrepared === '1') return;
+  frame.addEventListener('load', () => fitGameDocument(frame), { once: false });
+  if (frame.contentDocument?.readyState === 'complete') fitGameDocument(frame);
 
+  if (frame.dataset.uploadnplayPrepared === '1') return;
   const gameId = currentGameId();
   if (!gameId) return;
 
@@ -51,26 +67,19 @@ async function prepareFrame(frame: HTMLIFrameElement) {
   const { data, error } = await supabase.rpc('create_game_launch_token', { target_game: gameId });
   if (error || !data?.token) return;
 
+  const nextUrl = new URL(frame.src);
+  nextUrl.searchParams.set('uploadnplay_game', gameId);
+  nextUrl.searchParams.set('uploadnplay_token', data.token);
+
   const { data: credential } = await supabase
     .from('game_api_credentials')
     .select('public_key')
     .eq('game_id', gameId)
     .maybeSingle();
-
-  const config: LaunchConfig = {
-    gameId,
-    token: data.token,
-    publicKey: credential?.public_key || null,
-  };
+  if (credential?.public_key) nextUrl.searchParams.set('uploadnplay_key', credential.public_key);
 
   frame.dataset.uploadnplayPrepared = '1';
-
-  // IMPORTANT: playerUrl is a blob: URL. Never mutate it with URL search
-  // parameters: doing that creates an invalid blob reference in Chromium and
-  // produces "It may have been moved, edited, or deleted."
-  const send = () => sendLaunchConfig(frame, config);
-  frame.addEventListener('load', send, { once: true });
-  send();
+  frame.src = nextUrl.toString();
 }
 
 function scan() {
