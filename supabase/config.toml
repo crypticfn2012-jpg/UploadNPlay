@@ -1,0 +1,4 @@
+project_id = "rldidvwcylirjyfktvtg"
+
+[functions.uploadnplay-api]
+verify_jwt = false
