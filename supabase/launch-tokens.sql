@@ -17,9 +17,6 @@ create index if not exists game_launch_tokens_expires_idx on public.game_launch_
 
 alter table public.game_launch_tokens enable row level security;
 
-grant execute on function public.create_game_launch_token(uuid) to authenticated;
-grant execute on function public.resolve_game_launch_token(uuid, text) to anon, authenticated;
-
 drop policy if exists "No direct access to launch tokens" on public.game_launch_tokens;
 create policy "No direct access to launch tokens"
 on public.game_launch_tokens for select
@@ -59,12 +56,11 @@ begin
     token_expires
   );
 
-  return json_build_object(
-    'token', raw_token,
-    'expiresAt', token_expires
-  );
+  return json_build_object('token', raw_token, 'expiresAt', token_expires);
 end;
 $$;
+
+grant execute on function public.create_game_launch_token(uuid) to authenticated;
 
 drop function if exists public.resolve_game_launch_token(uuid, text);
 create or replace function public.resolve_game_launch_token(target_game uuid, provided_token text)
@@ -82,7 +78,8 @@ as $$
   limit 1;
 $$;
 
--- Keep expired one-time credentials from accumulating.
+grant execute on function public.resolve_game_launch_token(uuid, text) to anon, authenticated;
+
 create or replace function public.cleanup_expired_game_launch_tokens()
 returns integer
 language plpgsql
