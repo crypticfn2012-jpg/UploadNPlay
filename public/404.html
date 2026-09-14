@@ -8,7 +8,11 @@
     <script>
       fetch('/UploadNPlay/index.html')
         .then(response => response.text())
-        .then(html => document.open() || document.write(html) || document.close())
+        .then(html => {
+          document.open();
+          document.write(html);
+          document.close();
+        })
         .catch(() => {
           document.body.innerHTML = '<p style="font-family:sans-serif;padding:2rem">UploadNPlay could not load.</p>';
         });
