@@ -64,6 +64,18 @@ That means normal HTML5 paths such as these continue to work:
 
 There is no special UploadNPlay packaging format required.
 
+### Publishing access
+
+Publishing is open to authenticated UploadNPlay accounts. A new account can sign in and use **Publish** without needing a manually assigned developer role.
+
+For an existing Supabase project, run:
+
+```text
+supabase/publish-access.sql
+```
+
+This enables the developer publishing UI for existing accounts and makes it the default for new profiles. It does **not** bypass moderation: submitted games still start as `pending` and only approved games become public.
+
 ---
 
 ## Game review
@@ -247,6 +259,7 @@ UploadNPlay/
 ├── supabase/
 │   ├── schema.sql
 │   ├── storage-policies.sql
+│   ├── publish-access.sql
 │   ├── achievements.sql
 │   ├── launch-tokens.sql
 │   └── functions/
@@ -307,6 +320,12 @@ Storage policies:
 
 ```text
 supabase/storage-policies.sql
+```
+
+Publishing access for existing projects:
+
+```text
+supabase/publish-access.sql
 ```
 
 Achievements:
