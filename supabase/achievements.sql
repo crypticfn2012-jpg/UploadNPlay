@@ -77,11 +77,10 @@ grant execute on function public.game_owner_or_admin(uuid) to authenticated;
 
 grant select on public.game_achievements to anon, authenticated;
 grant insert, update, delete on public.game_achievements to authenticated;
-grant select on public.game_achievement_unlocks to authenticated;
-grant insert on public.game_achievement_unlocks to authenticated;
+grant select, insert on public.game_achievement_unlocks to authenticated;
 grant select on public.game_api_credentials to authenticated;
 
-a lter table public.game_achievements enable row level security;
+alter table public.game_achievements enable row level security;
 alter table public.game_achievement_unlocks enable row level security;
 alter table public.game_api_credentials enable row level security;
 
@@ -100,8 +99,8 @@ create policy "Public can read enabled achievements"
 on public.game_achievements for select
 to anon, authenticated
 using (
-  enabled = true
-  and exists (select 1 from public.games g where g.id = game_id and g.status = 'approved')
+  (enabled = true
+    and exists (select 1 from public.games g where g.id = game_id and g.status = 'approved'))
   or public.game_owner_or_admin(game_id)
 );
 
@@ -150,8 +149,6 @@ on public.game_api_credentials for select
 to authenticated
 using (public.game_owner_or_admin(game_id));
 
--- Generates a new public key + one-time server secret.
--- The secret is only returned by this function and only stored as a SHA-256 hash.
 create or replace function public.rotate_game_api_secret(target_game uuid)
 returns json
 language plpgsql
@@ -193,7 +190,6 @@ $$;
 
 grant execute on function public.rotate_game_api_secret(uuid) to authenticated;
 
--- Database-side helper for the server-only edge function.
 create or replace function public.verify_game_api_secret(target_game uuid, provided_secret text)
 returns boolean
 language sql
@@ -211,5 +207,4 @@ $$;
 
 grant execute on function public.verify_game_api_secret(uuid, text) to anon, authenticated;
 
--- Needed by generated identity inserts.
 grant usage, select on sequence public.game_achievement_unlocks_id_seq to authenticated;
