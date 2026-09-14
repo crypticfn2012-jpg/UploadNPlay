@@ -12,18 +12,26 @@ const json = (body: unknown, status = 200) =>
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
 
-const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
 const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-const supabase = createClient(supabaseUrl, serviceRoleKey, {
+const supabase = createClient(Deno.env.get('SUPABASE_URL')!, serviceRoleKey, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
 
-async function getUser(req: Request) {
+async function getPlayerId(req: Request, gameId?: string) {
   const auth = req.headers.get('Authorization');
   if (!auth?.startsWith('Bearer ')) return null;
   const token = auth.slice('Bearer '.length);
+
   const { data, error } = await supabase.auth.getUser(token);
-  return error ? null : data.user;
+  if (!error && data.user) return data.user.id;
+
+  if (!gameId) return null;
+  const { data: playerId, error: tokenError } = await supabase.rpc('resolve_game_launch_token', {
+    target_game: gameId,
+    provided_token: token,
+  });
+  if (tokenError || !playerId) return null;
+  return playerId as string;
 }
 
 function routeParts(url: URL) {
@@ -34,18 +42,21 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
   try {
-    const parts = routeParts(new URL(req.url));
+    const url = new URL(req.url);
+    const parts = routeParts(url);
     if (!parts.length) return json({ name: 'UploadNPlay API', version: '1' });
 
     if (parts[0] === 'me' && req.method === 'GET') {
-      const user = await getUser(req);
-      if (!user) return json({ authenticated: false, player: null }, 200);
+      const gameId = url.searchParams.get('gameId') || undefined;
+      const playerId = await getPlayerId(req, gameId);
+      if (!playerId) return json({ authenticated: false, player: null }, 200);
       const { data: profile } = await supabase
         .from('profiles')
         .select('id,username,display_name,avatar_url')
-        .eq('id', user.id)
+        .eq('id', playerId)
         .maybeSingle();
-      return json({ authenticated: true, player: { id: user.id, email: user.email ?? null, ...profile } });
+      const { data: authUser } = await supabase.auth.admin.getUserById(playerId);
+      return json({ authenticated: true, player: { id: playerId, email: authUser.user?.email ?? null, ...profile } });
     }
 
     if (parts[0] !== 'games' || !parts[1]) return json({ error: 'Not found' }, 404);
@@ -62,7 +73,7 @@ Deno.serve(async (req) => {
     if (parts[2] === undefined && req.method === 'GET') return json({ game });
 
     if (parts[2] === 'achievements' && parts.length === 3 && req.method === 'GET') {
-      const user = await getUser(req);
+      const playerId = await getPlayerId(req, gameId);
       const { data: achievements, error } = await supabase
         .from('game_achievements')
         .select('id,achievement_key,name,description,icon_url,points,secret,client_unlockable')
@@ -72,12 +83,12 @@ Deno.serve(async (req) => {
       if (error) return json({ error: error.message }, 500);
 
       let unlocked = new Set<string>();
-      if (user) {
+      if (playerId) {
         const { data: rows } = await supabase
           .from('game_achievement_unlocks')
           .select('achievement_id')
           .eq('game_id', gameId)
-          .eq('user_id', user.id);
+          .eq('user_id', playerId);
         unlocked = new Set((rows || []).map((row) => row.achievement_id));
       }
 
@@ -91,33 +102,31 @@ Deno.serve(async (req) => {
 
     if (parts[2] === 'achievements' && parts[3] && parts[4] === 'unlock' && req.method === 'POST') {
       const secret = req.headers.get('x-api-secret');
+      const achievementKey = parts[3];
+      const playerIdFromToken = await getPlayerId(req, gameId);
+
       if (secret) {
         const { data: valid, error: verifyError } = await supabase.rpc('verify_game_api_secret', {
           target_game: gameId,
           provided_secret: secret,
         });
         if (verifyError || !valid) return json({ error: 'Invalid API secret' }, 401);
-      } else {
-        const user = await getUser(req);
-        if (!user) return json({ error: 'Player authentication required' }, 401);
+      } else if (!playerIdFromToken) {
+        return json({ error: 'Player authentication required' }, 401);
       }
 
       const { data: achievement, error: achievementError } = await supabase
         .from('game_achievements')
         .select('id,game_id,achievement_key,name,client_unlockable')
         .eq('game_id', gameId)
-        .eq('achievement_key', parts[3])
+        .eq('achievement_key', achievementKey)
         .eq('enabled', true)
         .maybeSingle();
       if (achievementError || !achievement) return json({ error: 'Achievement not found' }, 404);
       if (!secret && !achievement.client_unlockable) return json({ error: 'This achievement is server-only' }, 403);
 
-      const user = await getUser(req);
-      let playerId = user?.id ?? null;
-      if (!playerId) {
-        const body = await req.json().catch(() => ({}));
-        playerId = typeof body.playerId === 'string' ? body.playerId : null;
-      }
+      const body = await req.json().catch(() => ({}));
+      const playerId = playerIdFromToken || (typeof body.playerId === 'string' ? body.playerId : null);
       if (!playerId) return json({ error: 'playerId is required for server unlocks' }, 400);
 
       const { error: unlockError } = await supabase.from('game_achievement_unlocks').insert({
