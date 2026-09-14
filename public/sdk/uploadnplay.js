@@ -43,7 +43,8 @@
 
   UploadNPlay.prototype.getPlayer = function () {
     if (!this.token) return Promise.resolve(null);
-    return this.request('/me');
+    if (!this.gameId) return Promise.reject(new Error('UploadNPlay gameId is missing.'));
+    return this.request('/me?gameId=' + encodeURIComponent(this.gameId));
   };
 
   UploadNPlay.prototype.isSignedIn = function () {
