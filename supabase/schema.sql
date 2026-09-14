@@ -114,10 +114,8 @@ grant insert, update on public.profiles to authenticated;
 grant select on public.games to anon, authenticated;
 grant insert, update, delete on public.games to authenticated;
 grant select, insert on public.game_views to anon, authenticated;
-
 grant execute on function public.is_admin() to anon, authenticated;
 
-a-- Enable row level security.
 alter table public.profiles enable row level security;
 alter table public.games enable row level security;
 alter table public.game_views enable row level security;
