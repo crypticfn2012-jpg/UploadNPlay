@@ -6,6 +6,7 @@
   'use strict';
 
   var API = 'https://rldidvwcylirjyfktvtg.supabase.co/functions/v1/uploadnplay-api';
+  var instances = [];
 
   function fromUrl() {
     var params = new URLSearchParams(global.location.search);
@@ -16,14 +17,28 @@
     };
   }
 
+  function fromLaunchConfig() {
+    var config = global.__UPLOADNPLAY_CONFIG;
+    return config && config.source === 'uploadnplay' ? config : null;
+  }
+
   function UploadNPlay(options) {
     options = options || {};
     var url = fromUrl();
-    this.gameId = options.gameId || url.gameId;
-    this.token = options.token || url.token || null;
-    this.publicKey = options.publicKey || url.publicKey || null;
+    var launch = fromLaunchConfig();
+    this.gameId = options.gameId || url.gameId || (launch && launch.gameId) || null;
+    this.token = options.token || url.token || (launch && launch.token) || null;
+    this.publicKey = options.publicKey || url.publicKey || (launch && launch.publicKey) || null;
     this.apiUrl = (options.apiUrl || API).replace(/\/$/, '');
+    instances.push(this);
   }
+
+  UploadNPlay.prototype.applyLaunchConfig = function (config) {
+    if (!config || config.source !== 'uploadnplay') return;
+    if (config.gameId) this.gameId = config.gameId;
+    if (config.token) this.token = config.token;
+    if (config.publicKey) this.publicKey = config.publicKey;
+  };
 
   UploadNPlay.prototype.request = async function (path, init) {
     init = init || {};
@@ -81,6 +96,22 @@
   UploadNPlay.init = function (options) {
     return new UploadNPlay(options);
   };
+
+  global.addEventListener('message', function (event) {
+    var data = event.data;
+    if (!data || data.source !== 'uploadnplay' || data.type !== 'uploadnplay-launch') return;
+    var config = {
+      source: 'uploadnplay',
+      gameId: data.gameId || null,
+      token: data.token || null,
+      publicKey: data.publicKey || null
+    };
+    global.__UPLOADNPLAY_CONFIG = config;
+    instances.slice().forEach(function (instance) {
+      instance.applyLaunchConfig(config);
+      instance.emit('launch', config);
+    });
+  });
 
   global.UploadNPlay = UploadNPlay;
 })(window);
