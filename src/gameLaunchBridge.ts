@@ -7,7 +7,18 @@ function currentGameId(): string | null {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
+function normalizeGameFrame(frame: HTMLIFrameElement) {
+  // Uploaded games are served from the Supabase Storage origin, not the
+  // UploadNPlay origin. Removing the sandbox avoids Chromium's warning about
+  // the allow-scripts + allow-same-origin combination and lets normal HTML5
+  // games use browser storage, pointer lock, audio and other game APIs.
+  frame.removeAttribute('sandbox');
+  frame.setAttribute('allow', 'fullscreen; autoplay');
+  frame.referrerPolicy = 'no-referrer';
+}
+
 async function prepareFrame(frame: HTMLIFrameElement) {
+  normalizeGameFrame(frame);
   if (frame.dataset.uploadnplayPrepared === '1') return;
   const gameId = currentGameId();
   if (!gameId) return;
