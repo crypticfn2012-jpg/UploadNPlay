@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>UploadNPlay SDK</title><style>body{margin:0;background:#171a21;color:#d6d7d8;font:14px Inter,Arial,sans-serif}main{max-width:900px;margin:auto;padding:50px 22px 80px}a{color:#75c9ae}h1,h2{color:#fff}code,pre{background:#11151a;border:1px solid #303640;border-radius:6px}pre{padding:18px;overflow:auto;line-height:1.55}p,li{line-height:1.7;color:#9ca3aa}.card{background:#1d2128;border:1px solid #303640;border-radius:8px;padding:22px;margin:18px 0}.back{font-size:12px;text-decoration:none}</style></head>
+<body><main><a class="back" href="../../#/developer">← Back to UploadNPlay</a><h1>UploadNPlay SDK</h1><p>Use the browser SDK to connect an HTML5 game to UploadNPlay achievements and player data.</p>
+<div class="card"><h2>Install</h2><pre><code>&lt;script src="https://crypticfn2012-jpg.github.io/UploadNPlay/sdk/uploadnplay.js"&gt;&lt;/script&gt;
+&lt;script&gt;
+const unp = UploadNPlay.init({
+  gameId: 'YOUR_GAME_ID',
+  publicKey: 'YOUR_PUBLIC_KEY'
+});
+&lt;/script&gt;</code></pre></div>
+<div class="card"><h2>Game information</h2><pre><code>const game = await unp.getGame();
+console.log(game.game.title);</code></pre></div>
+<div class="card"><h2>Player</h2><pre><code>const player = await unp.getPlayer();
+console.log(player?.player);</code></pre><p>For games launched through UploadNPlay, the platform can provide a short-lived player token to the game. A missing token means the player is not signed in.</p></div>
+<div class="card"><h2>Achievements</h2><pre><code>const achievements = await unp.getAchievements();
+
+await unp.unlockAchievement('first-win');</code></pre><p>Client unlocks only work for achievements that the developer marked as client-unlockable. Server-only achievements must be unlocked by a game backend with the server API secret.</p></div>
+<div class="card"><h2>Never ship the server secret</h2><p>The public key is safe to include in a browser game. The server secret is not. Keep the server secret in your backend environment and send it only as the <code>x-api-secret</code> header to the UploadNPlay server API.</p></div>
+<h2>API reference</h2><p><a href="../api/">Open the REST API documentation</a> or <a href="../achievements/">manage achievements</a>.</p>
+</main></body></html>
