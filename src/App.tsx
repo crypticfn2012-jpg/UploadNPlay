@@ -1,201 +1,42 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode, type FormEvent } from 'react';
 import { Link, Route, Routes, useNavigate, useParams } from 'react-router-dom';
 import JSZip from 'jszip';
 import { supabase } from './lib/supabase';
 
-type Game = {
-  id: string;
-  title: string;
-  description: string;
-  developer_id: string;
-  entry_point: string;
-  thumbnail_url: string | null;
-  created_at: string;
-  profiles?: { username: string } | null;
-};
+type Profile = { id: string; username: string; display_name: string | null; bio: string | null; avatar_url: string | null; is_dev: boolean; is_admin: boolean };
+type Game = { id: string; title: string; description: string; developer_id: string; entry_point: string; thumbnail_url: string | null; created_at: string; status: string; rejection_reason: string | null; profiles?: Pick<Profile,'username'|'display_name'> | null };
 
-function Icon({ children }: { children: React.ReactNode }) {
-  return <span className="icon" aria-hidden="true">{children}</span>;
-}
+const fallbackProfile = (id: string, username = 'player'): Profile => ({ id, username, display_name: null, bio: null, avatar_url: null, is_dev: false, is_admin: false });
+const publicUrl = (bucket: string, path: string) => supabase.storage.from(bucket).getPublicUrl(path).data.publicUrl;
 
-function Layout({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="app-shell">
-      <header className="topbar">
-        <div className="topbar-inner">
-          <Link to="/" className="brand"><span>UPLOAD</span>N<span>PLAY</span></Link>
-          <nav className="main-nav">
-            <Link to="/">Store</Link>
-            <Link to="/">Library</Link>
-            <Link to="/upload">Publish</Link>
-          </nav>
-          <div className="account-nav">
-            <Link to="/auth" className="account-button">Sign in</Link>
-          </div>
-        </div>
-      </header>
-      <main>{children}</main>
-      <footer className="footer"><span>UploadNPlay</span><span>Browser games, published by their creators.</span></footer>
-    </div>
-  );
+function Layout({ children }: { children: ReactNode }) {
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const load = async () => { const { data:{ user } } = await supabase.auth.getUser(); if (!user) return setProfile(null); const { data } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle(); setProfile(data || fallbackProfile(user.id, user.email?.split('@')[0] || 'player')); };
+  useEffect(() => { load(); const { data } = supabase.auth.onAuthStateChange(() => { window.setTimeout(load, 0); }); return () => data.subscription.unsubscribe(); }, []);
+  async function logout() { await supabase.auth.signOut(); setProfile(null); }
+  return <div className="app-shell"><header className="topbar"><div className="topbar-inner"><Link to="/" className="brand"><span>Upload</span>NPlay</Link><nav className="main-nav"><Link to="/">Store</Link><Link to="/">Library</Link>{profile?.is_dev || profile?.is_admin ? <Link to="/developer">Developer</Link> : <Link to="/upload">Publish</Link>}{profile?.is_admin && <Link to="/admin">Admin</Link>}</nav><div className="account-nav">{profile ? <div className="user-nav"><Link to="/profile" className="user-chip">{profile.avatar_url ? <img src={profile.avatar_url} /> : <span>{(profile.display_name || profile.username).slice(0,1).toUpperCase()}</span>}<b>{profile.display_name || profile.username}</b></Link><button onClick={logout}>Sign out</button></div> : <Link to="/auth" className="account-button">Sign in</Link>}</div></div></header><main>{children}</main><footer className="footer"><b>UploadNPlay</b><span>Browser games published by their creators.</span></footer></div>;
 }
 
 function Home() {
-  const [games, setGames] = useState<Game[]>([]);
-  const [q, setQ] = useState('');
-
-  useEffect(() => {
-    supabase.from('games').select('*, profiles(username)').order('created_at', { ascending: false })
-      .then(({ data }) => setGames((data as Game[]) || []));
-  }, []);
-
-  const shown = useMemo(() => games.filter(g => `${g.title} ${g.description}`.toLowerCase().includes(q.toLowerCase())), [games, q]);
-  const featured = shown[0];
-
-  return (
-    <Layout>
-      <section className="store-wrap">
-        <div className="store-search-row">
-          <div className="store-tabs"><Link className="active" to="/">Store</Link><a href="#browse">Browse</a><a href="#new">New releases</a></div>
-          <div className="search-box"><Icon>⌕</Icon><input value={q} onChange={e => setQ(e.target.value)} placeholder="Search games" /></div>
-        </div>
-
-        {featured ? (
-          <section className="featured">
-            <div className="featured-copy">
-              <p className="kicker">FEATURED GAME</p>
-              <h1>{featured.title}</h1>
-              <p>{featured.description || 'A new game published on UploadNPlay.'}</p>
-              <div className="featured-meta">by {featured.profiles?.username || 'UploadNPlay developer'}</div>
-              <Link to={`/game/${featured.id}`} className="play-button"><Icon>▶</Icon> Play now</Link>
-            </div>
-            {featured.thumbnail_url ? <img src={featured.thumbnail_url} className="featured-image" /> : <div className="featured-image featured-placeholder">{featured.title.slice(0, 1)}</div>}
-          </section>
-        ) : (
-          <section className="featured empty-featured"><div><p className="kicker">WELCOME TO UPLOADNPLAY</p><h1>Find something to play.</h1><p>UploadNPlay is a home for HTML5 games made by independent developers.</p><Link to="/upload" className="play-button">Publish your first game</Link></div></section>
-        )}
-
-        <div className="catalog-layout" id="browse">
-          <aside className="sidebar">
-            <p className="sidebar-title">BROWSE</p>
-            <a className="sidebar-link selected" href="#browse">All games</a>
-            <a className="sidebar-link" href="#new">Recently added</a>
-            <a className="sidebar-link" href="#browse">Popular</a>
-            <p className="sidebar-title spacing">UPLOADNPLAY</p>
-            <Link className="sidebar-link" to="/upload">Publish a game</Link>
-            <Link className="sidebar-link" to="/auth">Your account</Link>
-          </aside>
-          <section className="catalog" id="new">
-            <div className="section-title"><div><p className="kicker">LIBRARY</p><h2>Discover games</h2></div><span>{shown.length} games</span></div>
-            {shown.length ? <div className="game-grid">{shown.map(game => <GameCard key={game.id} game={game} />)}</div> : <div className="empty">No games match that search.</div>}
-          </section>
-        </div>
-      </section>
-    </Layout>
-  );
+  const [games,setGames]=useState<Game[]>([]); const [q,setQ]=useState(''); const [error,setError]=useState('');
+  useEffect(()=>{ supabase.from('games').select('*, profiles(username,display_name)').order('created_at',{ascending:false}).then(({data,error})=>{if(error)setError(error.message);else setGames((data as Game[])||[])}); },[]);
+  const shown=useMemo(()=>games.filter(g=>`${g.title} ${g.description}`.toLowerCase().includes(q.toLowerCase())),[games,q]); const featured=shown[0];
+  return <Layout><div className="store-page"><div className="store-nav"><div className="store-links"><Link className="active" to="/">Store</Link><a href="#discover">Discover</a><a href="#new">New releases</a></div><input className="store-search" value={q} onChange={e=>setQ(e.target.value)} placeholder="Search for a game" /></div>{error&&<div className="notice error">Could not load games: {error}</div>}{featured?<Link to={`/game/${featured.id}`} className="hero"><div className="hero-copy"><small>FEATURED</small><h1>{featured.title}</h1><p>{featured.description||'A new game on UploadNPlay.'}</p><span>Play game</span></div>{featured.thumbnail_url?<img src={featured.thumbnail_url}/>:<div className="hero-placeholder">{featured.title.slice(0,1)}</div>}</Link>:<div className="empty-hero"><small>UPLOADNPLAY</small><h1>Your next game starts here.</h1><p>Discover browser games or publish your own.</p><Link to="/upload">Publish a game</Link></div>}<section id="discover" className="catalog-section"><div className="section-head"><div><small>DISCOVER</small><h2>Games</h2></div><span>{shown.length}</span></div>{shown.length?<div className="game-grid">{shown.map(g=><GameCard key={g.id} game={g}/>)}</div>:<div className="empty">No games found.</div>}</section></div></Layout>;
 }
+function GameCard({game}:{game:Game}){const name=game.profiles?.display_name||game.profiles?.username||'Developer';return <Link className="game-card" to={`/game/${game.id}`}>{game.thumbnail_url?<img src={game.thumbnail_url}/>:<div className="game-card-placeholder">{game.title.slice(0,1).toUpperCase()}</div>}<h3>{game.title}</h3><p>{name}</p></Link>}
 
-function GameCard({ game }: { game: Game }) {
-  return (
-    <Link to={`/game/${game.id}`} className="game-card">
-      {game.thumbnail_url ? <img src={game.thumbnail_url} className="game-thumb" /> : <div className="game-thumb placeholder">{game.title.slice(0, 1).toUpperCase()}</div>}
-      <div className="game-card-body"><h3>{game.title}</h3><p>{game.profiles?.username || 'UploadNPlay developer'}</p></div>
-    </Link>
-  );
-}
+function Upload(){const [title,setTitle]=useState('');const [description,setDescription]=useState('');const [zip,setZip]=useState<File|null>(null);const [thumb,setThumb]=useState<File|null>(null);const [status,setStatus]=useState('');const [busy,setBusy]=useState(false);const nav=useNavigate();
+ async function submit(e:FormEvent){e.preventDefault();if(!title.trim()||!zip){setStatus('Add a title and ZIP.');return}setBusy(true);setStatus('Checking ZIP...');try{const {data:{user}}=await supabase.auth.getUser();if(!user)throw new Error('Sign in first.');const z=await JSZip.loadAsync(zip);const files=Object.keys(z.files).filter(n=>!z.files[n].dir&&!n.replaceAll('\\','/').split('/').some(p=>p==='..'||p==='.'||!p));const entry=files.find(n=>n.toLowerCase()==='index.html')||files.find(n=>/(^|\/)index\.html$/i.test(n));if(!entry)throw new Error('Your ZIP must contain index.html. JS, CSS, JSON, images, audio, WASM, Python and other supporting files are allowed.');const {data:game,error}=await supabase.from('games').insert({title:title.trim(),description,developer_id:user.id,entry_point:entry,zip_path:'',status:'pending'}).select().single();if(error)throw error;for(const name of files){setStatus(`Uploading ${name}`);const blob=await z.files[name].async('blob');const ext=name.split('.').pop()?.toLowerCase()||'';const types:Record<string,string>={html:'text/html',css:'text/css',js:'text/javascript',mjs:'text/javascript',json:'application/json',wasm:'application/wasm',svg:'image/svg+xml',png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',gif:'image/gif',webp:'image/webp',mp3:'audio/mpeg',wav:'audio/wav',ogg:'audio/ogg',mp4:'video/mp4',webm:'video/webm',txt:'text/plain',csv:'text/csv',py:'text/x-python'};const {error:upErr}=await supabase.storage.from('game-files').upload(`${game.id}/${name}`,blob,{upsert:true,contentType:types[ext]||'application/octet-stream'});if(upErr)throw upErr}if(thumb){const ext=thumb.name.split('.').pop()||'jpg';const path=`${game.id}.${ext}`;const {error:upErr}=await supabase.storage.from('thumbnails').upload(path,thumb,{upsert:true,contentType:thumb.type||'image/jpeg'});if(!upErr)await supabase.from('games').update({thumbnail_url:publicUrl('thumbnails',path)}).eq('id',game.id)}const {error:finishErr}=await supabase.from('games').update({zip_path:`${game.id}/`}).eq('id',game.id);if(finishErr)throw finishErr;nav(`/game/${game.id}`)}catch(err){setStatus(err instanceof Error?err.message:'Upload failed.')}finally{setBusy(false)}}
+ return <Layout><div className="form-page"><div className="form-intro"><small>PUBLISH A GAME</small><h1>Send it to review.</h1><p>Every game is checked by an admin before it appears in the store. UploadNPlay hosts your HTML5 files as-is.</p></div><form className="form-card" onSubmit={submit}><label>Title<input value={title} onChange={e=>setTitle(e.target.value)} placeholder="Game title"/></label><label>Description<textarea value={description} onChange={e=>setDescription(e.target.value)} placeholder="Tell players about your game"/></label><label>Game ZIP<input type="file" accept=".zip" onChange={e=>setZip(e.target.files?.[0]||null)}/><span className="hint">index.html is required. Supporting .js, .css, .json, .py, .wasm, images, audio and more can be included.</span></label><label>Thumbnail<input type="file" accept="image/*" onChange={e=>setThumb(e.target.files?.[0]||null)}/></label><button className="primary" disabled={busy}>{busy?status:'Submit for review'}</button>{!busy&&status&&<div className="notice error">{status}</div>}</form></div></Layout>}
 
-function Upload() {
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [file, setFile] = useState<File | null>(null);
-  const [thumb, setThumb] = useState<File | null>(null);
-  const [status, setStatus] = useState('');
-  const [busy, setBusy] = useState(false);
-  const nav = useNavigate();
+function GamePage(){const{id}=useParams();const[game,setGame]=useState<Game|null>(null);const[loading,setLoading]=useState(true);useEffect(()=>{if(!id)return;supabase.from('games').select('*, profiles(username,display_name)').eq('id',id).maybeSingle().then(({data})=>{setGame(data as Game|null);setLoading(false)});},[id]);if(loading)return <Layout><div className="empty-page">Loading...</div></Layout>;if(!game)return <Layout><div className="empty-page">Game not found.</div></Layout>;const playable=game.status==='approved';const fileUrl=publicUrl('game-files',`${game.id}/${game.entry_point}`);return <Layout><div className="game-page">{!playable?<div className="review-banner">This game is currently <b>{game.status}</b>{game.rejection_reason&&<span> — {game.rejection_reason}</span>}</div>:null}<div className="game-heading">{game.thumbnail_url?<img src={game.thumbnail_url}/>:<div className="title-placeholder">{game.title.slice(0,1)}</div>}<div><small>GAME</small><h1>{game.title}</h1><p>by {game.profiles?.display_name||game.profiles?.username||'Developer'}</p></div></div>{playable?<div className="player"><iframe src={fileUrl} title={game.title} sandbox="allow-scripts allow-same-origin allow-pointer-lock allow-forms" allow="fullscreen; pointer-lock"/><button onClick={()=>document.querySelector('.player')?.requestFullscreen()}>Fullscreen</button></div>:<div className="blocked-game"><h2>Waiting for approval</h2><p>This game is not public yet. The developer can see its review status from the Developer Portal.</p></div>}<div className="game-description"><small>ABOUT THIS GAME</small><p>{game.description||'No description provided.'}</p></div></div></Layout>}
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!file || !title.trim()) { setStatus('Add a title and ZIP file.'); return; }
-    setBusy(true); setStatus('Checking ZIP...');
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('Please sign in first.');
-      const zip = await JSZip.loadAsync(file);
-      const names = Object.keys(zip.files).filter(name => {
-        if (zip.files[name].dir) return false;
-        const clean = name.replaceAll('\\', '/');
-        return clean.split('/').every(part => part !== '..' && part !== '.');
-      });
-      const entry = names.find(n => n === 'index.html') || names.find(n => /(^|\/)index\.html$/i.test(n));
-      if (!entry) throw new Error('The ZIP needs an index.html file. Other files such as .js, .css, .json, .py and assets are allowed.');
+function Auth(){const[email,setEmail]=useState('');const[sent,setSent]=useState(false);const[error,setError]=useState('');async function login(e:FormEvent){e.preventDefault();setError('');const{error}=await supabase.auth.signInWithOtp({email,options:{emailRedirectTo:`${window.location.origin}${window.location.pathname}#/auth`}});if(error)setError(error.message);else setSent(true)}useEffect(()=>{supabase.auth.getSession().then(({data})=>{if(data.session)window.location.hash='#/'})},[]);return <Layout><div className="auth-page"><small>ACCOUNT</small><h1>Sign in.</h1><p>Use your email and we will send a magic link.</p><form className="form-card" onSubmit={login}><label>Email<input required type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@example.com"/></label><button className="primary">Send magic link</button>{sent&&<div className="notice success">Check your email for the sign-in link.</div>}{error&&<div className="notice error">{error}</div>}</form></div></Layout>}
 
-      const { data: game, error } = await supabase.from('games').insert({ title: title.trim(), description, developer_id: user.id, entry_point: entry, zip_path: '' }).select().single();
-      if (error) throw error;
+function Profile(){const[profile,setProfile]=useState<Profile|null>(null);const[display,setDisplay]=useState('');const[username,setUsername]=useState('');const[bio,setBio]=useState('');const[avatar,setAvatar]=useState<File|null>(null);const[msg,setMsg]=useState('');useEffect(()=>{supabase.auth.getUser().then(async({data:{user}})=>{if(!user)return;const{data}=await supabase.from('profiles').select('*').eq('id',user.id).maybeSingle();if(data){setProfile(data);setDisplay(data.display_name||'');setUsername(data.username);setBio(data.bio||'')}})},[]);async function save(e:FormEvent){e.preventDefault();if(!profile)return;setMsg('Saving...');try{let avatar_url=profile.avatar_url;if(avatar){const ext=avatar.name.split('.').pop()||'png';const path=`${profile.id}/avatar.${ext}`;const{error}=await supabase.storage.from('avatars').upload(path,avatar,{upsert:true,contentType:avatar.type||'image/png'});if(error)throw error;avatar_url=publicUrl('avatars',path)}const{data,error}=await supabase.from('profiles').update({display_name:display.trim()||username,username:username.trim().toLowerCase(),bio:bio.trim(),avatar_url}).eq('id',profile.id).select().single();if(error)throw error;setProfile(data);setMsg('Profile saved.')}catch(err){setMsg(err instanceof Error?err.message:'Could not save profile.')}}if(!profile)return <Layout><div className="empty-page">Sign in first.</div></Layout>;return <Layout><div className="profile-page"><div className="profile-cover"><div className="profile-avatar">{profile.avatar_url?<img src={profile.avatar_url}/>:<span>{(profile.display_name||profile.username).slice(0,1).toUpperCase()}</span>}</div><div><small>PROFILE</small><h1>{profile.display_name||profile.username}</h1><p>@{profile.username}</p></div></div><form className="form-card profile-form" onSubmit={save}><h2>Edit profile</h2><label>Profile picture<input type="file" accept="image/*" onChange={e=>setAvatar(e.target.files?.[0]||null)}/></label><label>Display name<input value={display} onChange={e=>setDisplay(e.target.value)}/></label><label>Username<input value={username} onChange={e=>setUsername(e.target.value.replace(/[^a-zA-Z0-9_]/g,''))}/></label><label>Bio<textarea value={bio} onChange={e=>setBio(e.target.value)} maxLength={500} placeholder="Tell people about yourself"/></label><button className="primary">Save profile</button>{msg&&<div className="notice">{msg}</div>}</form></div></Layout>}
 
-      for (const name of names) {
-        setStatus(`Uploading ${name}...`);
-        const blob = await zip.files[name].async('blob');
-        const ext = name.split('.').pop()?.toLowerCase();
-        const types: Record<string, string> = {
-          html: 'text/html', htm: 'text/html', css: 'text/css', js: 'text/javascript', mjs: 'text/javascript',
-          json: 'application/json', wasm: 'application/wasm', svg: 'image/svg+xml', xml: 'application/xml',
-          png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp',
-          mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', mp4: 'video/mp4', webm: 'video/webm',
-          txt: 'text/plain', csv: 'text/csv', py: 'text/x-python'
-        };
-        const { error: uploadError } = await supabase.storage.from('game-files').upload(`${game.id}/${name}`, blob, { contentType: types[ext || ''] || 'application/octet-stream', upsert: true });
-        if (uploadError) throw uploadError;
-      }
+function Developer(){const[profile,setProfile]=useState<Profile|null>(null);const[games,setGames]=useState<Game[]>([]);const[views,setViews]=useState(0);const[loading,setLoading]=useState(true);useEffect(()=>{(async()=>{const{data:{user}}=await supabase.auth.getUser();if(!user){setLoading(false);return}const{data:p}=await supabase.from('profiles').select('*').eq('id',user.id).maybeSingle();setProfile(p);if(!p?.is_dev&&!p?.is_admin){setLoading(false);return}const{data:g}=await supabase.from('games').select('*, profiles(username,display_name)').eq('developer_id',user.id).order('created_at',{ascending:false});setGames((g as Game[])||[]);const ids=(g||[]).map(x=>x.id);if(ids.length){const{count}=await supabase.from('game_views').select('id',{count:'exact',head:true}).in('game_id',ids);setViews(count||0)}setLoading(false)})()},[]);if(loading)return <Layout><div className="empty-page">Loading...</div></Layout>;if(!profile?.is_dev&&!profile?.is_admin)return <Layout><div className="denied-page"><h1>Developer Portal</h1><p>Your account is not marked as a developer yet.</p></div></Layout>;const pending=games.filter(g=>g.status==='pending').length;const approved=games.filter(g=>g.status==='approved').length;return <Layout><div className="portal"><div className="portal-head"><div><small>DEVELOPER PORTAL</small><h1>Overview</h1><p>Your games, review status and player traffic.</p></div><Link className="primary" to="/upload">New game</Link></div><div className="stats"><div><b>{games.length}</b><span>Total games</span></div><div><b>{approved}</b><span>Approved</span></div><div><b>{pending}</b><span>In review</span></div><div><b>{views}</b><span>Game views</span></div></div><section className="portal-list"><div className="section-head"><div><small>YOUR GAMES</small><h2>Published projects</h2></div></div>{games.length?games.map(g=><div className="portal-game" key={g.id}>{g.thumbnail_url?<img src={g.thumbnail_url}/>:<div className="mini-placeholder">{g.title.slice(0,1)}</div>}<div className="portal-game-copy"><h3>{g.title}</h3><p>{g.description||'No description'}</p></div><span className={`status status-${g.status}`}>{g.status}</span><Link to={`/game/${g.id}`}>View</Link></div>):<div className="empty">No games yet.</div>}</section></div></Layout>}
 
-      if (thumb) {
-        const ext = thumb.name.split('.').pop() || 'jpg';
-        const path = `${game.id}.${ext}`;
-        const { error: thumbError } = await supabase.storage.from('thumbnails').upload(path, thumb, { upsert: true, contentType: thumb.type });
-        if (!thumbError) {
-          const { data: publicUrl } = supabase.storage.from('thumbnails').getPublicUrl(path);
-          await supabase.from('games').update({ thumbnail_url: publicUrl.publicUrl }).eq('id', game.id);
-        }
-      }
-      await supabase.from('games').update({ zip_path: `${game.id}/` }).eq('id', game.id);
-      nav(`/game/${game.id}`);
-    } catch (err) {
-      setStatus(err instanceof Error ? err.message : 'Upload failed.');
-    } finally { setBusy(false); }
-  }
+function Admin(){const[profile,setProfile]=useState<Profile|null>(null);const[games,setGames]=useState<Game[]>([]);const[busy,setBusy]=useState('');const[error,setError]=useState('');const[refresh,setRefresh]=useState(0);useEffect(()=>{(async()=>{const{data:{user}}=await supabase.auth.getUser();if(!user)return;const{data:p}=await supabase.from('profiles').select('*').eq('id',user.id).maybeSingle();setProfile(p);if(!p?.is_admin)return;const{data,error}=await supabase.from('games').select('*, profiles(username,display_name)').order('created_at',{ascending:false});if(error)setError(error.message);else setGames((data as Game[])||[])})()},[refresh]);async function moderate(id:string,status:'approved'|'rejected'){setBusy(id);const reason=status==='rejected'?window.prompt('Reason for rejection?')||'Rejected by admin':null;const{error}=await supabase.from('games').update({status,rejection_reason:reason}).eq('id',id);if(error)setError(error.message);else setRefresh(x=>x+1);setBusy('')}if(!profile?.is_admin)return <Layout><div className="denied-page"><h1>Admin</h1><p>Admin access is disabled for this account.</p></div></Layout>;const pending=games.filter(g=>g.status==='pending');return <Layout><div className="portal"><div className="portal-head"><div><small>ADMIN</small><h1>Game review</h1><p>Approve games before they become public.</p></div></div>{error&&<div className="notice error">{error}</div>}<section className="review-list">{pending.length?pending.map(g=><div className="review-card" key={g.id}>{g.thumbnail_url?<img src={g.thumbnail_url}/>:<div className="review-placeholder">{g.title.slice(0,1)}</div>}<div className="review-copy"><small>PENDING REVIEW</small><h2>{g.title}</h2><p>{g.description||'No description.'}</p><p>Developer: @{g.profiles?.username||'unknown'}</p></div><div className="review-actions"><Link to={`/game/${g.id}`}>Open</Link><button className="primary" disabled={busy===g.id} onClick={()=>moderate(g.id,'approved')}>Approve</button><button className="danger" disabled={busy===g.id} onClick={()=>moderate(g.id,'rejected')}>Deny</button></div></div>):<div className="empty">No games waiting for review.</div>}</section></div></Layout>}
 
-  return <Layout><div className="publish-page"><div className="publish-intro"><p className="kicker">PUBLISH</p><h1>Put your game<br />on UploadNPlay.</h1><p>Upload one ZIP and we handle the static hosting. Your game just needs an <code>index.html</code> entry point.</p></div><form onSubmit={submit} className="publish-panel"><label>Game title<input value={title} onChange={e => setTitle(e.target.value)} placeholder="My awesome game" /></label><label>Description<textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="Tell players what your game is about..." /></label><label>Game ZIP<input type="file" accept=".zip" onChange={e => setFile(e.target.files?.[0] || null)} /><small>HTML is required. JavaScript, CSS, images, audio, WASM, JSON, Python and other supporting files can also be included.</small></label><label>Thumbnail <span className="optional">OPTIONAL</span><input type="file" accept="image/*" onChange={e => setThumb(e.target.files?.[0] || null)} /></label><button className="play-button submit" disabled={busy}>{busy ? status : 'Publish game'}</button>{!busy && status && <p className="form-status">{status}</p>}</form></div></Layout>;
-}
-
-function GamePage() {
-  const { id } = useParams();
-  const [game, setGame] = useState<Game | null>(null);
-  const [url, setUrl] = useState('');
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    if (!id) return;
-    supabase.from('games').select('*, profiles(username)').eq('id', id).single().then(({ data }) => {
-      const g = data as Game | null;
-      setGame(g); setLoading(false);
-      if (g) {
-        const { data: publicUrl } = supabase.storage.from('game-files').getPublicUrl(`${g.id}/${g.entry_point}`);
-        setUrl(publicUrl.publicUrl);
-      }
-    });
-  }, [id]);
-
-  if (loading) return <Layout><div className="empty-page">Loading game...</div></Layout>;
-  if (!game) return <Layout><div className="empty-page">Game not found.</div></Layout>;
-
-  return <Layout><div className="game-page"><div className="game-title-row">{game.thumbnail_url ? <img src={game.thumbnail_url} /> : <div className="title-placeholder">{game.title.slice(0, 1)}</div>}<div><p className="kicker">UPLOADNPLAY GAME</p><h1>{game.title}</h1><p>by {game.profiles?.username || 'Unknown developer'}</p></div></div><div className="player"><iframe title={game.title} src={url} sandbox="allow-scripts allow-same-origin allow-pointer-lock allow-forms" allow="fullscreen; pointer-lock" /><button onClick={() => document.querySelector('.player')?.requestFullscreen()} className="fullscreen">Fullscreen</button></div><div className="game-info"><div><p className="kicker">ABOUT THIS GAME</p><h2>About {game.title}</h2><p>{game.description || 'No description provided.'}</p></div><aside><strong>RUNS IN YOUR BROWSER</strong><span>Keyboard, mouse and gamepad controls depend on the game.</span></aside></div></div></Layout>;
-}
-
-function Auth() {
-  const [email, setEmail] = useState(''); const [sent, setSent] = useState(false); const [error, setError] = useState('');
-  async function login(e: React.FormEvent) { e.preventDefault(); setError(''); const { error: authError } = await supabase.auth.signInWithOtp({ email }); if (authError) setError(authError.message); else setSent(true); }
-  return <Layout><div className="auth-page"><p className="kicker">ACCOUNT</p><h1>Sign in to<br />UploadNPlay.</h1><form onSubmit={login} className="publish-panel"><label>Email<input type="email" required placeholder="you@example.com" value={email} onChange={e => setEmail(e.target.value)} /></label><button className="play-button">Send magic link</button>{sent && <p className="success">Check your email for the sign-in link.</p>}{error && <p className="form-status">{error}</p>}</form></div></Layout>;
-}
-
-export default function App() {
-  return <Routes><Route path="/" element={<Home />} /><Route path="/upload" element={<Upload />} /><Route path="/game/:id" element={<GamePage />} /><Route path="/auth" element={<Auth />} /></Routes>;
-}
+export default function App(){return <Routes><Route path="/" element={<Home/>}/><Route path="/upload" element={<Upload/>}/><Route path="/game/:id" element={<GamePage/>}/><Route path="/auth" element={<Auth/>}/><Route path="/profile" element={<Profile/>}/><Route path="/developer" element={<Developer/>}/><Route path="/admin" element={<Admin/>}/></Routes>}
