@@ -43,18 +43,27 @@ function fitGameDocument(frame: HTMLIFrameElement) {
 
 function normalizeGameFrame(frame: HTMLIFrameElement) {
   frame.removeAttribute('sandbox');
-  frame.setAttribute('allow', 'fullscreen; autoplay');
+  frame.setAttribute('allow', 'fullscreen; autoplay; gamepad; pointer-lock');
   frame.setAttribute('scrolling', 'no');
   frame.referrerPolicy = 'no-referrer';
   frame.style.overflow = 'hidden';
 }
 
+function sendLaunchConfig(frame: HTMLIFrameElement, gameId: string, token: string, publicKey?: string) {
+  frame.contentWindow?.postMessage(
+    {
+      type: 'uploadnplay:launch',
+      gameId,
+      token,
+      publicKey: publicKey || null,
+    },
+    '*'
+  );
+}
+
 async function prepareFrame(frame: HTMLIFrameElement) {
   normalizeGameFrame(frame);
-  frame.addEventListener('load', () => fitGameDocument(frame), { once: false });
-  if (frame.contentDocument?.readyState === 'complete') fitGameDocument(frame);
 
-  if (frame.dataset.uploadnplayPrepared === '1') return;
   const gameId = currentGameId();
   if (!gameId) return;
 
@@ -67,23 +76,35 @@ async function prepareFrame(frame: HTMLIFrameElement) {
   const { data, error } = await supabase.rpc('create_game_launch_token', { target_game: gameId });
   if (error || !data?.token) return;
 
-  const nextUrl = new URL(frame.src);
-  nextUrl.searchParams.set('uploadnplay_game', gameId);
-  nextUrl.searchParams.set('uploadnplay_token', data.token);
-
   const { data: credential } = await supabase
     .from('game_api_credentials')
     .select('public_key')
     .eq('game_id', gameId)
     .maybeSingle();
-  if (credential?.public_key) nextUrl.searchParams.set('uploadnplay_key', credential.public_key);
+
+  const publicKey = credential?.public_key || undefined;
+
+  const launch = () => {
+    normalizeGameFrame(frame);
+    fitGameDocument(frame);
+    sendLaunchConfig(frame, gameId, data.token, publicKey);
+  };
+
+  frame.addEventListener('load', launch, { once: false });
+
+  if (frame.contentDocument?.readyState === 'complete') {
+    launch();
+  }
 
   frame.dataset.uploadnplayPrepared = '1';
-  frame.src = nextUrl.toString();
 }
 
 function scan() {
   document.querySelectorAll<HTMLIFrameElement>(launchSelector).forEach((frame) => {
+    if (frame.dataset.uploadnplayPrepared === '1') {
+      normalizeGameFrame(frame);
+      return;
+    }
     void prepareFrame(frame);
   });
 }
