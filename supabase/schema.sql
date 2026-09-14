@@ -65,6 +65,21 @@ as $$
   );
 $$;
 
+create or replace function public.profile_roles_unchanged()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.profiles p
+    where p.id = auth.uid()
+      and p.is_dev = p.is_dev
+      and p.is_admin = p.is_admin
+  );
+$$;
+
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
@@ -72,15 +87,47 @@ security definer
 set search_path = public
 as $$
 declare
+  raw_name text;
   base_username text;
+  candidate text;
+  suffix integer := 1;
+  display_name_value text;
+  avatar_value text;
 begin
-  base_username := lower(regexp_replace(
-    coalesce(new.raw_user_meta_data->>'user_name', split_part(coalesce(new.email,'player'),'@',1)),
-    '[^a-zA-Z0-9_]', '', 'g'
-  ));
+  raw_name := coalesce(
+    new.raw_user_meta_data->>'user_name',
+    new.raw_user_meta_data->>'username',
+    new.raw_user_meta_data->>'preferred_username',
+    new.raw_user_meta_data->>'name',
+    split_part(coalesce(new.email, 'player'), '@', 1)
+  );
+
+  base_username := lower(regexp_replace(coalesce(raw_name, 'player'), '[^a-zA-Z0-9_]', '', 'g'));
   if base_username = '' then base_username := 'player'; end if;
-  insert into public.profiles (id, username, display_name)
-  values (new.id, left(base_username, 30), left(coalesce(new.raw_user_meta_data->>'display_name', base_username), 80))
+  base_username := left(base_username, 30);
+  candidate := base_username;
+
+  while exists (select 1 from public.profiles p where p.username = candidate) loop
+    candidate := left(base_username, greatest(1, 29 - length(suffix::text))) || '_' || suffix::text;
+    suffix := suffix + 1;
+  end loop;
+
+  display_name_value := left(coalesce(
+    new.raw_user_meta_data->>'full_name',
+    new.raw_user_meta_data->>'display_name',
+    new.raw_user_meta_data->>'name',
+    raw_name,
+    candidate
+  ), 80);
+
+  avatar_value := coalesce(
+    new.raw_user_meta_data->>'avatar_url',
+    new.raw_user_meta_data->>'picture',
+    new.raw_user_meta_data->>'image_url'
+  );
+
+  insert into public.profiles (id, username, display_name, avatar_url)
+  values (new.id, candidate, display_name_value, avatar_value)
   on conflict (id) do nothing;
   return new;
 end;
@@ -106,8 +153,6 @@ create trigger games_set_updated_at
 before update on public.games
 for each row execute procedure public.set_games_updated_at();
 
--- Explicit table privileges are required in addition to RLS policies for the
--- Supabase REST API roles used by the frontend.
 grant usage on schema public to anon, authenticated;
 grant select on public.profiles to anon, authenticated;
 grant insert, update on public.profiles to authenticated;
@@ -115,17 +160,16 @@ grant select on public.games to anon, authenticated;
 grant insert, update, delete on public.games to authenticated;
 grant select, insert on public.game_views to anon, authenticated;
 grant execute on function public.is_admin() to anon, authenticated;
+grant execute on function public.profile_roles_unchanged() to authenticated;
 
 alter table public.profiles enable row level security;
 alter table public.games enable row level security;
 alter table public.game_views enable row level security;
 
--- Remove old/duplicate policies so this script can safely be rerun.
 drop policy if exists "Public profiles are readable" on public.profiles;
 drop policy if exists "Profiles are publicly readable" on public.profiles;
 drop policy if exists "Users can create their own profile" on public.profiles;
 drop policy if exists "Users can update their own profile" on public.profiles;
-
 drop policy if exists "Public games are readable" on public.games;
 drop policy if exists "Games are publicly readable" on public.games;
 drop policy if exists "Approved games are public" on public.games;
@@ -134,7 +178,6 @@ drop policy if exists "Authenticated users can submit games" on public.games;
 drop policy if exists "Developers can update their games" on public.games;
 drop policy if exists "Developers can update their pending games" on public.games;
 drop policy if exists "Developers can delete their games" on public.games;
-
 drop policy if exists "Anyone can record game views" on public.game_views;
 drop policy if exists "Developers can read their game views" on public.game_views;
 drop policy if exists "Admins can read all game views" on public.game_views;
@@ -155,8 +198,7 @@ to authenticated
 using (auth.uid() = id)
 with check (
   auth.uid() = id
-  and is_dev = (select p.is_dev from public.profiles p where p.id = auth.uid())
-  and is_admin = (select p.is_admin from public.profiles p where p.id = auth.uid())
+  and public.profile_roles_unchanged()
 );
 
 create policy "Approved games are public"
@@ -196,7 +238,5 @@ using (
   or public.is_admin()
 );
 
--- New accounts automatically receive a profile.
--- IMPORTANT: keep is_admin false by default. After your account exists, make
--- your account the owner/admin from the SQL editor, for example:
+-- After your owner account exists, set its developer/admin flags manually:
 -- update public.profiles set is_dev = true, is_admin = true where username = 'yourusername';
