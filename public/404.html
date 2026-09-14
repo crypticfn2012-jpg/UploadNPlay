@@ -6,12 +6,13 @@
     <meta name="theme-color" content="#090b10" />
     <title>UploadNPlay</title>
     <script>
-      // GitHub Pages has no SPA rewrite. This file is served for direct route
-      // requests, while keeping the original URL so BrowserRouter can handle it.
-      window.location.replace(window.location.href);
+      fetch('/UploadNPlay/index.html')
+        .then(response => response.text())
+        .then(html => document.open() || document.write(html) || document.close())
+        .catch(() => {
+          document.body.innerHTML = '<p style="font-family:sans-serif;padding:2rem">UploadNPlay could not load.</p>';
+        });
     </script>
   </head>
-  <body>
-    <div id="root"></div>
-  </body>
+  <body></body>
 </html>
