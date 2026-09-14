@@ -1,9 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 
-// The Supabase anon key is safe to use in browser code. Keeping these fallbacks
-// makes the GitHub Pages build work even when Actions environment variables are
-// not configured.
+// The Supabase anon key is public browser configuration. The fallbacks ensure
+// the app still works on GitHub Pages when Actions secrets are unavailable.
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://rldidvwcylirjyfktvtg.supabase.co';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJsZGlkdndjeWxpcmp5Zmt0dnRnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYyMjM0OTAsImV4cCI6MjEwMTc5OTQ5MH0.YO5zeu5uL3siDDPVfs9c9v_VCETHixTWXjzotVOEp0U';
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJybGRpZHZ3Y3lsaXJqeWZrdHZ0ZyIsInJvbGUiOiJhbm9uIiwiaWF0IjoxNzg2MjIzNDkwLCJleHAiOjIxMDE3OTk0OTB9.YO5zeu5uL3siDDPVfs9c9v_VCETHixTWXjzotVOEp0U';
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
