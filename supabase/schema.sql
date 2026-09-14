@@ -65,7 +65,7 @@ as $$
   );
 $$;
 
-create or replace function public.profile_roles_unchanged()
+create or replace function public.profile_roles_match(new_is_dev boolean, new_is_admin boolean)
 returns boolean
 language sql
 stable
@@ -75,8 +75,8 @@ as $$
   select exists (
     select 1 from public.profiles p
     where p.id = auth.uid()
-      and p.is_dev = p.is_dev
-      and p.is_admin = p.is_admin
+      and p.is_dev = new_is_dev
+      and p.is_admin = new_is_admin
   );
 $$;
 
@@ -160,7 +160,7 @@ grant select on public.games to anon, authenticated;
 grant insert, update, delete on public.games to authenticated;
 grant select, insert on public.game_views to anon, authenticated;
 grant execute on function public.is_admin() to anon, authenticated;
-grant execute on function public.profile_roles_unchanged() to authenticated;
+grant execute on function public.profile_roles_match(boolean, boolean) to authenticated;
 
 alter table public.profiles enable row level security;
 alter table public.games enable row level security;
@@ -198,7 +198,7 @@ to authenticated
 using (auth.uid() = id)
 with check (
   auth.uid() = id
-  and public.profile_roles_unchanged()
+  and public.profile_roles_match(is_dev, is_admin)
 );
 
 create policy "Approved games are public"
