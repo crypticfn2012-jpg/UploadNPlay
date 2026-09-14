@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>UploadNPlay API</title><style>body{margin:0;background:#171a21;color:#d6d7d8;font:14px Inter,Arial,sans-serif}main{max-width:920px;margin:auto;padding:50px 22px 80px}a{color:#75c9ae}h1,h2{color:#fff}code,pre{background:#11151a;border:1px solid #303640;border-radius:6px}pre{padding:18px;overflow:auto;line-height:1.55}p,li{line-height:1.7;color:#9ca3aa}.endpoint{background:#1d2128;border:1px solid #303640;border-radius:8px;padding:20px;margin:16px 0}.method{font-weight:700;color:#75c9ae}.back{font-size:12px;text-decoration:none}</style></head><body><main><a class="back" href="../../#/developer">← Back to UploadNPlay</a><h1>UploadNPlay API</h1><p>Base URL:</p><pre><code>https://rldidvwcylirjyfktvtg.supabase.co/functions/v1/uploadnplay-api</code></pre>
+<div class="endpoint"><div class="method">GET /games/:gameId</div><p>Returns public information for an approved game.</p></div>
+<div class="endpoint"><div class="method">GET /games/:gameId/achievements</div><p>Returns enabled achievements and, when an authenticated player token is supplied, that player's unlocked state.</p></div>
+<div class="endpoint"><div class="method">GET /me</div><p>Returns the authenticated UploadNPlay player from a bearer player/session token.</p></div>
+<div class="endpoint"><div class="method">POST /games/:gameId/achievements/:achievementKey/unlock</div><p>Client unlock. Send a player bearer token. This only works when the achievement is marked client-unlockable.</p><pre><code>Authorization: Bearer YOUR_PLAYER_TOKEN</code></pre></div>
+<div class="endpoint"><div class="method">POST /games/:gameId/achievements/:achievementKey/unlock</div><p>Server-only unlock. Send the secret in the header. Never expose this value to browser code.</p><pre><code>x-api-secret: YOUR_SERVER_SECRET
+Content-Type: application/json
+
+{"playerId":"UPLOADNPLAY_PLAYER_ID"}</code></pre></div>
+<div class="endpoint"><h2>Credentials</h2><p>Each game can have a public key and a separate server secret. The server secret is stored only as a hash and is shown once when generated or rotated.</p></div>
+<div class="endpoint"><h2>Example server unlock</h2><pre><code>await fetch('https://rldidvwcylirjyfktvtg.supabase.co/functions/v1/uploadnplay-api/games/GAME_ID/achievements/first-win/unlock', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'x-api-secret': process.env.UPLOADNPLAY_API_SECRET
+  },
+  body: JSON.stringify({ playerId: playerId })
+});</code></pre></div>
+<p><a href="../sdk/">SDK documentation</a> · <a href="../achievements/">Achievement manager</a></p></main></body></html>
