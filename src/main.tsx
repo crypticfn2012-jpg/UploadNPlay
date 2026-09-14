@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { HashRouter } from 'react-router-dom';
 import './styles.css';
 import './profile.css';
+import './refinement.css';
 import './gameLaunchBridge';
 import App from './App';
 
