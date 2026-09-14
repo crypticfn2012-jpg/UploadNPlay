@@ -6,11 +6,15 @@ import './profile.css';
 import './refinement.css';
 import './gameLaunchBridge';
 import App from './App';
+import { ProductionBoundary, RouteEffects } from './productionShell';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <HashRouter>
-      <App />
+      <ProductionBoundary>
+        <RouteEffects />
+        <App />
+      </ProductionBoundary>
     </HashRouter>
   </StrictMode>
 );
